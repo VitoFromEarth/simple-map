@@ -36,6 +36,15 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "b910eba5-538a-4ecd-91ac-01358676e5b5"
+      }
+    },
+    "owner": "vitaliigetruck"
   }
 }
