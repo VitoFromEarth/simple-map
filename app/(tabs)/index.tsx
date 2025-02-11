@@ -23,7 +23,9 @@ export default function HomePage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [region, setRegion] = useState<Region>(DEFAULT_REGION);
   const [provider, setProvider] = useState<LocationProvider>('react-native-community');
+  const [isTracking, setIsTracking] = useState(false);
   const mapRef = useRef<MapView | null>(null);
+  const watchIdRef = useRef<number | null>(null);
 
   const getExpoLocation = async () => {
     try {
@@ -84,6 +86,88 @@ export default function HomePage() {
     }
   };
 
+  const startTracking = async () => {
+    try {
+      if (provider === 'expo') {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          setErrorMsg('Permission to access location was denied');
+          return;
+        }
+        
+        watchIdRef.current = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 5000,
+            distanceInterval: 10,
+          },
+          (newLocation) => {
+            console.log('New location from Expo:', newLocation);
+            setLocation(newLocation);
+            updateRegion(newLocation);
+          }
+        ).then(subscription => subscription.remove);
+      } else {
+        Geolocation.requestAuthorization();
+        watchIdRef.current = Geolocation.watchPosition(
+          (position) => {
+            console.log('New location from RN:', position);
+            const newLocation = {
+              coords: {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                altitude: position.coords.altitude,
+                accuracy: position.coords.accuracy,
+                altitudeAccuracy: position.coords.altitudeAccuracy,
+                heading: position.coords.heading,
+                speed: position.coords.speed,
+              },
+              timestamp: position.timestamp,
+            };
+            setLocation(newLocation as any);
+            updateRegion(newLocation);
+          },
+          (error) => {
+            console.error('Error watching position:', error);
+            setErrorMsg('Error tracking location');
+          },
+          { 
+            enableHighAccuracy: true,
+            distanceFilter: 10,
+            interval: 5000,
+          }
+        );
+      }
+      setIsTracking(true);
+    } catch (error) {
+      console.error('Error starting tracking:', error);
+      setErrorMsg('Error starting location tracking');
+    }
+  };
+
+  const stopTracking = () => {
+    if (watchIdRef.current !== null) {
+      if (provider === 'expo') {
+        (watchIdRef.current as () => void)();
+      } else {
+        Geolocation.clearWatch(watchIdRef.current);
+      }
+      watchIdRef.current = null;
+    }
+    setIsTracking(false);
+  };
+
+  const updateRegion = (newLocation: any) => {
+    const newRegion: Region = {
+      latitude: newLocation.coords.latitude,
+      longitude: newLocation.coords.longitude,
+      latitudeDelta: 0.01,
+      longitudeDelta: 0.01,
+    };
+    setRegion(newRegion);
+    mapRef.current?.animateToRegion(newRegion, 1000);
+  };
+
   const getRNLocation = () => {
     return new Promise((resolve, reject) => {
       Geolocation.requestAuthorization();
@@ -141,8 +225,19 @@ export default function HomePage() {
   };
 
   useEffect(() => {
-    getLocation();
+    if (isTracking) {
+      stopTracking();
+      startTracking();
+    } else {
+      getLocation();
+    }
   }, [provider]);
+
+  useEffect(() => {
+    return () => {
+      stopTracking();
+    };
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -205,7 +300,13 @@ export default function HomePage() {
               onPress={getLocation}
             >
               <FontAwesome name="location-arrow" size={24} color="white" />
-            </TouchableOpacity>    
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.controlButton, isTracking ? styles.trackingActiveButton : styles.trackingButton]}
+              onPress={() => isTracking ? stopTracking() : startTracking()}
+            >
+              <FontAwesome name={isTracking ? "stop" : "play"} size={24} color="white" />
+            </TouchableOpacity>
           </View>
         </View>
       )}
@@ -214,6 +315,12 @@ export default function HomePage() {
 }
 
 const styles = StyleSheet.create({
+  trackingButton: {
+    backgroundColor: '#4CD964',
+  },
+  trackingActiveButton: {
+    backgroundColor: '#FF3B30',
+  },
   providerStatus: {
     position: 'absolute',
     top: 50,
