@@ -1,7 +1,8 @@
-import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Button } from 'react-native';
 import MapView, { Marker, Region } from 'react-native-maps';
 import { useEffect, useState, useRef } from 'react';
 import * as Location from 'expo-location';
+import Geolocation from '@react-native-community/geolocation';
 import { FontAwesome } from '@expo/vector-icons';
 
 // Default region set to Ukraine (Kyiv)
@@ -15,13 +16,16 @@ const DEFAULT_REGION: Region = {
 const MIN_ZOOM_DELTA = 0.01;
 const MAX_ZOOM_DELTA = 1.5;
 
+type LocationProvider = 'expo' | 'react-native';
+
 export default function HomePage() {
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [region, setRegion] = useState<Region>(DEFAULT_REGION);
+  const [provider, setProvider] = useState<LocationProvider>('react-native-community');
   const mapRef = useRef<MapView | null>(null);
 
-  const getLocation = async () => {
+  const getExpoLocation = async () => {
     try {
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
@@ -29,7 +33,7 @@ export default function HomePage() {
         return;
       }
 
-      console.log('Getting location...');
+      console.log('Getting location with Expo...');
       let currentLocation = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
@@ -80,9 +84,65 @@ export default function HomePage() {
     }
   };
 
+  const getRNLocation = () => {
+    return new Promise((resolve, reject) => {
+      Geolocation.requestAuthorization();
+      
+      Geolocation.getCurrentPosition(
+        (position) => {
+          console.log('Getting location with React Native Geolocation...');
+          resolve({
+            coords: {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              altitude: position.coords.altitude,
+              accuracy: position.coords.accuracy,
+              altitudeAccuracy: position.coords.altitudeAccuracy,
+              heading: position.coords.heading,
+              speed: position.coords.speed,
+            },
+            timestamp: position.timestamp,
+          });
+        },
+        (error) => {
+          reject(error);
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+      );
+    });
+  };
+
+  const getLocation = async () => {
+    try {
+      const currentLocation = await (provider === 'expo' ? getExpoLocation() : getRNLocation());
+      if (!currentLocation) return;
+
+      const newRegion: Region = {
+        latitude: currentLocation.coords.latitude,
+        longitude: currentLocation.coords.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      };
+      
+      setLocation(currentLocation as any);
+      setRegion(newRegion);
+      
+      setTimeout(() => {
+        mapRef.current?.animateToRegion(newRegion, 1000);
+      }, 100);
+    } catch (error) {
+      console.error('Error getting location:', error);
+      setErrorMsg('Error getting location');
+    }
+  };
+
+  const toggleProvider = () => {
+    setProvider(prev => prev === 'expo' ? 'react-native-community' : 'expo');
+  };
+
   useEffect(() => {
     getLocation();
-  }, []);
+  }, [provider]);
 
   return (
     <View style={styles.container}>
@@ -90,6 +150,12 @@ export default function HomePage() {
         <Text style={styles.error}>{errorMsg}</Text>
       ) : (
         <View style={styles.mapContainer}>
+          <TouchableOpacity onPress={toggleProvider} style={styles.providerStatus}>
+            <Text style={styles.providerStatusText}>
+              Provider: <Text style={styles.providerStatusValue}>{provider.toUpperCase()}</Text>
+            </Text>
+          </TouchableOpacity>
+
           <MapView
             ref={mapRef}
             style={styles.map}
@@ -132,6 +198,15 @@ export default function HomePage() {
               <FontAwesome name="minus" size={24} color="#000" />
             </TouchableOpacity>
           </View>
+
+          <View style={styles.controlsContainer}>
+            <TouchableOpacity
+              style={[styles.controlButton, styles.locationButton]}
+              onPress={getLocation}
+            >
+              <FontAwesome name="location-arrow" size={24} color="white" />
+            </TouchableOpacity>    
+          </View>
         </View>
       )}
     </View>
@@ -139,6 +214,59 @@ export default function HomePage() {
 }
 
 const styles = StyleSheet.create({
+  providerStatus: {
+    position: 'absolute',
+    top: 50,
+    left: 16,
+    right: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    padding: 8,
+    borderRadius: 8,
+    zIndex: 1,
+  },
+  providerStatusText: {
+    color: 'white',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  providerStatusValue: {
+    fontWeight: 'bold',
+    color: '#34C759',
+  },
+  controlsContainer: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    alignItems: 'center',
+  },
+  controlButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  locationButton: {
+    backgroundColor: '#007AFF',
+  },
+  providerButton: {
+    backgroundColor: '#34C759',
+  },
+  providerText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
   container: {
     flex: 1,
   },
@@ -160,7 +288,7 @@ const styles = StyleSheet.create({
   zoomControls: {
     position: 'absolute',
     right: 16,
-    bottom: 100,
+    bottom: 160,
     backgroundColor: 'transparent',
   },
   zoomButton: {
